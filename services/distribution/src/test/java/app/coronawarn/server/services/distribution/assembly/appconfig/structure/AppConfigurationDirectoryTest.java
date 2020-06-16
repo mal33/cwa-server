@@ -23,6 +23,8 @@ package app.coronawarn.server.services.distribution.assembly.appconfig.structure
 import static java.io.File.separator;
 import static java.lang.String.join;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 
 import app.coronawarn.server.services.distribution.assembly.appconfig.structure.directory.AppConfigurationDirectory;
 import app.coronawarn.server.services.distribution.assembly.component.CryptoProvider;
@@ -54,31 +56,59 @@ class AppConfigurationDirectoryTest {
   @Rule
   private TemporaryFolder outputFolder = new TemporaryFolder();
 
-  @Autowired
-  CryptoProvider cryptoProvider;
+  private final CryptoProvider cryptoProvider;
+  private final DistributionServiceConfig distributionServiceConfigSpy;
 
   @Autowired
-  DistributionServiceConfig distributionServiceConfig;
+  AppConfigurationDirectoryTest(DistributionServiceConfig distributionServiceConfig, CryptoProvider cryptoProvider) {
+    this.distributionServiceConfigSpy = spy(distributionServiceConfig);
+    this.cryptoProvider = cryptoProvider;
+  }
 
   @Test
   void createsCorrectFiles() throws IOException {
-    outputFolder.create();
-    File outputFile = outputFolder.newFolder();
-    AppConfigurationDirectory configurationDirectory =
-        new AppConfigurationDirectory(cryptoProvider, distributionServiceConfig);
-    Directory<WritableOnDisk> parentDirectory = new DirectoryOnDisk(outputFile);
-    parentDirectory.addWritable(configurationDirectory);
-
-    configurationDirectory.prepare(new ImmutableStack<>());
-    configurationDirectory.write();
-    Set<String> actFiles = Helpers.getFiles(outputFile, outputFile.getAbsolutePath());
-
     Set<String> expFiles = Set.of(
         join(separator, "configuration", "country", "index"),
         join(separator, "configuration", "country", "index.checksum"),
         join(separator, "configuration", "country", "DE", "app_config"),
         join(separator, "configuration", "country", "DE", "app_config.checksum"));
 
-    assertThat(actFiles).isEqualTo(expFiles);
+    assertThat(buildDirectory()).isEqualTo(expFiles);
+  }
+
+  @Test
+  void doesNotWriteAppConfigIfValidationFails() throws IOException {
+    doReturn("configtests/app-config_mrs_negative.yaml").when(distributionServiceConfigSpy)
+        .getAppConfigurationParametersFile();
+
+    Set<String> expFiles = Set.of(
+        join(separator, "configuration", "country", "index"),
+        join(separator, "configuration", "country", "index.checksum"));
+
+    assertThat(buildDirectory()).isEqualTo(expFiles);
+  }
+
+  @Test
+  void doesNotWriteAppConfigIfUnableToLoadFile() throws IOException {
+    doReturn("invalidPath").when(distributionServiceConfigSpy).getAppConfigurationParametersFile();
+
+    Set<String> expFiles = Set.of(
+        join(separator, "configuration", "country", "index"),
+        join(separator, "configuration", "country", "index.checksum"));
+
+    assertThat(buildDirectory()).isEqualTo(expFiles);
+  }
+
+  private Set<String> buildDirectory() throws IOException {
+    outputFolder.create();
+    File outputFile = outputFolder.newFolder();
+    AppConfigurationDirectory configurationDirectory =
+        new AppConfigurationDirectory(cryptoProvider, distributionServiceConfigSpy);
+    Directory<WritableOnDisk> parentDirectory = new DirectoryOnDisk(outputFile);
+    parentDirectory.addWritable(configurationDirectory);
+
+    configurationDirectory.prepare(new ImmutableStack<>());
+    configurationDirectory.write();
+    return Helpers.getFiles(outputFile, outputFile.getAbsolutePath());
   }
 }
